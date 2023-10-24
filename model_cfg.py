@@ -2,9 +2,11 @@
 import logging
 from typing import Any, Callable, List, Optional, Tuple
 from torch.distributed import rpc as trpc
+from torchvision import models
 from transformers import AutoConfig
 from pipeedge.comm import p2p, rpc
 from pipeedge.models import ModuleShard, ModuleShardConfig
+from pipeedge.models.cnn import alexnet, resnet
 from pipeedge.models.transformers import bert, deit, vit
 import devices
 
@@ -41,6 +43,16 @@ _model_cfg_add('facebook/deit-small-distilled-patch16-224', 48, 'DeiT_S_distille
                deit.DeiTShardForImageClassification)
 _model_cfg_add('facebook/deit-tiny-distilled-patch16-224', 48, 'DeiT_T_distilled.npz',
                deit.DeiTShardForImageClassification)
+_model_cfg_add('torchvision/resnet18', 21, 'resnet18.pt',
+               resnet.ResNet18ModelShard)
+_model_cfg_add('torchvision/resnet34', 37, 'resnet34.pt',
+               resnet.ResNet34ModelShard)
+_model_cfg_add('torchvision/resnet50', 54, 'resnet50.pt',
+               resnet.ResNet50ModelShard)
+_model_cfg_add('torchvision/resnet101', 105, 'resnet101.pt',
+               resnet.ResNet101ModelShard)
+_model_cfg_add('torchvision/alexnet', 5, 'alexnet.pt',
+               alexnet.AlexNetModelShard)
 
 def get_model_names() -> List[str]:
     """Get a list of available model names."""
@@ -54,20 +66,30 @@ def get_model_layers(model_name: str) -> int:
     """Get a model's layer count."""
     return _MODEL_CONFIGS[model_name]['layers']
 
-def get_model_config(model_name: str) -> Any:
+def get_model_config(model_name: str, model_file) -> Any:
     """Get a model's config."""
     # We'll need more complexity if/when we add support for models not from `transformers`
-    config = AutoConfig.from_pretrained(model_name)
-    # Config overrides
-    if model_name == 'google/vit-huge-patch14-224-in21k':
-        # ViT-Huge doesn't include classification, so we have to set this ourselves
-        # NOTE: not setting 'id2label' or 'label2id'
-        config.num_labels = 21843
+    if model_name.split('/')[0] == 'torchvision':
+        if model_name.split('/')[1].startswith('resnet'):
+            config = resnet.ResnetConfig(model_file)
+        if model_name.split('/')[1] == 'alexnet':
+            config = alexnet.AlexNetConfig(model_file)
+    else:
+        config = AutoConfig.from_pretrained(model_name)
+        # Sonfig overrides
+        if model_name == 'google/vit-huge-patch14-224-in21k':
+            # ViT-Huge doesn't include classification, so we have to set this ourselves
+            # NOTE: not setting 'id2label' or 'label2id'
+            config.num_labels = 21843
     return config
 
 def get_model_default_weights_file(model_name: str) -> str:
     """Get a model's default weights file name."""
-    return _MODEL_CONFIGS[model_name]['weights_file']
+    if model_name.split('/')[0] == 'torchvision':
+        torch_models = getattr(models, model_name.split('/')[1])
+        return torch_models(pretrained=True)
+    else:
+        return _MODEL_CONFIGS[model_name]['weights_file']
 
 def save_model_weights_file(model_name: str, model_file: Optional[str]=None) -> None:
     """Save a model's weights file."""
@@ -83,7 +105,7 @@ def module_shard_factory(model_name: str, model_file: Optional[str], layer_start
     # This works b/c all shard implementations have the same constructor interface
     if model_file is None:
         model_file = get_model_default_weights_file(model_name)
-    config = get_model_config(model_name)
+    config = get_model_config(model_name, model_file)
     is_first = layer_start == 1
     is_last = layer_end == get_model_layers(model_name)
     shard_config = ModuleShardConfig(layer_start=layer_start, layer_end=layer_end,
@@ -92,6 +114,7 @@ def module_shard_factory(model_name: str, model_file: Optional[str], layer_start
     shard = module(config, shard_config, model_file)
     _logger.info("======= %s Stage %d =======", module.__name__, stage)
     shard.to(device=devices.DEVICE)
+    shard.eval()
     return shard
 
 def _dist_rpc_pipeline_stage_factory(*args, **kwargs) -> rpc.DistRpcPipelineStage:

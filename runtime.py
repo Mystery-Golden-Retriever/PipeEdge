@@ -27,11 +27,24 @@ import monitoring
 from utils import data, threads
 from utils import quant as quantutil
 
+from torchvision import transforms
+
+
 logger = logging.getLogger(__name__)
 
 ## ground truth: Egyptian cat
-IMG_URL = 'http://images.cocodataset.org/val2017/000000039769.jpg'
-IMG_LABEL_IDX = 285
+# IMG_URL = 'http://images.cocodataset.org/val2017/000000039769.jpg'
+# IMG_LABEL_IDX = 285
+
+# More Ground Truth Samples From https://github.com/EliSchwartz/imagenet-sample-images/tree/master
+# IMG_URL = 'https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01440764_tench.JPEG'
+# IMG_LABEL_IDX = 0
+
+# IMG_URL = 'https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01514859_hen.JPEG'
+# IMG_LABEL_IDX = 8
+
+IMG_URL = 'https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01580077_jay.JPEG'
+IMG_LABEL_IDX = 17
 
 CMD_STOP = 0
 CMD_SCHED = 1
@@ -362,6 +375,15 @@ def load_dataset(dataset_cfg: dict, model_name: str, batch_size: int, ubatch_siz
                           'facebook/deit-small-distilled-patch16-224',
                           'facebook/deit-tiny-distilled-patch16-224']:
             feature_extractor = DeiTFeatureExtractor.from_pretrained(model_name)
+
+        elif model_name.startswith('torchvision'):
+            feature_extractor = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225]),
+            transforms.Lambda(lambda x: x.unsqueeze(0))
+            ])
         else:
             feature_extractor = ViTFeatureExtractor.from_pretrained(model_name)
         return feature_extractor
@@ -396,7 +418,10 @@ def load_dataset(dataset_cfg: dict, model_name: str, batch_size: int, ubatch_siz
         ## random data
         # image = torch.randn(3, 384, 384)
         image = Image.open(requests.get(IMG_URL, stream=True, timeout=60).raw)
-        inputs = feature_extractor(images=[image], return_tensors="pt")['pixel_values']
+        if model_name.startswith('torchvision'):
+            inputs = feature_extractor(image)
+        else:
+            inputs = feature_extractor(images=[image], return_tensors="pt")['pixel_values']
         dataset = data.RolloverTensorDataset(batch_size, inputs, torch.tensor([IMG_LABEL_IDX]))
     return dataset
 
@@ -716,6 +741,7 @@ def main() -> None:
     logger.info("Device: %s", devices.DEVICE)
     logger.debug("# parallel intra nodes threads: %d", torch.get_num_threads())
     logger.debug("# parallel inter nodes threads: %d", torch.get_num_interop_threads())
+    
     if args.comm == 'p2p':
         run_pipeline_p2p(args.worldsize, args.rank, args.model_name, args.model_file,
                          args.batch_size, args.ubatch_size, partition, quant, rank_order,
