@@ -5,7 +5,7 @@ from torch.distributed import rpc as trpc
 from transformers import AutoConfig
 from pipeedge.comm import p2p, rpc
 from pipeedge.models import ModuleShard, ModuleShardConfig
-from pipeedge.models.transformers import bert, deit, vit
+from pipeedge.models.transformers import bert, deit, vit, opt
 import devices
 
 _logger = logging.getLogger(__name__)
@@ -41,6 +41,9 @@ _model_cfg_add('facebook/deit-small-distilled-patch16-224', 48, 'DeiT_S_distille
                deit.DeiTShardForImageClassification)
 _model_cfg_add('facebook/deit-tiny-distilled-patch16-224', 48, 'DeiT_T_distilled.npz',
                deit.DeiTShardForImageClassification)
+# NOTE: OptModelShard (added by Jonghwan Park, 01.26.2024)
+_model_cfg_add('facebook/opt-350m', 96, 'OPT-350m.npz', 
+               opt.OPTModelShard)
 
 def get_model_names() -> List[str]:
     """Get a list of available model names."""

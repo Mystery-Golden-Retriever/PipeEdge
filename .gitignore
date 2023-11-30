@@ -157,3 +157,5 @@ cython_debug/
 *.csv
 *.npz
 *.yml
+.vscode/launch.json
+.vscode/settings.json
