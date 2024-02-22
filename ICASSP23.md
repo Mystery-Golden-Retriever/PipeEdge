@@ -40,6 +40,11 @@ This is the manuscript for re-producing the experiments in paper "QuantPipe: App
 
 ***
 ## Scripts
+To use `tc` command on the Jetson Orin devices, it requires some kernel functioin support for Linux-arm-arch64, so first run the followinig:
+
+      sudo insmod /opt/fogsys/kernel-5.10/modules/sch_tbf.ko
+      \# do some stuff here
+      sudo rmmod sch_tbf
 
 - set_bandwidth.sh
 
