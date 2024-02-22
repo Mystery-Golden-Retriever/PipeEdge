@@ -6,6 +6,7 @@ import queue
 import random
 import sys
 import threading
+import subprocess
 import time
 from math import sqrt, floor, ceil
 from typing import List, Optional, Sequence, Tuple, Union
@@ -822,21 +823,25 @@ class MainWindow(QMainWindow):
 
     def update_plot(self):
         window_size = monitoring.get_window_size()
-        for i in range(self.ROW_NUM_FIGS):
-            for j in range(self.COL_NUM_FIGS):
-                if self.fig_titles[i*self.COL_NUM_FIGS+j] != "":
-                    y = self.results[i*self.COL_NUM_FIGS+j] if len(self.results[i*self.COL_NUM_FIGS+j])!=0 else [0,]
-                    # x must be derived from y in case of race condition, resulting unequal size of x and y
-                    x = list(range(len(y)))
-                    # slide in window size increments to reduce noise
-                    idx_max = max(len(self.results[i*self.COL_NUM_FIGS+j]) - 1, 0)
-                    x_max = int(ceil(idx_max / window_size)) * window_size
-                    x_max = max(PLOT_DATAPOINT_NUMBER, x_max)
-                    x_min = max(0, x_max - PLOT_DATAPOINT_NUMBER)
-                    self.graphWidgets[i*self.COL_NUM_FIGS+j].setXRange(x_min, x_max)
-                    y_max = max(self.results[i*self.COL_NUM_FIGS+j][x_min:min(x_max, idx_max)], default=1)
-                    self.graphWidgets[i*self.COL_NUM_FIGS+j].setYRange(0, y_max)
-                    self.plots[i*self.COL_NUM_FIGS+j].setData(x, y)
+        with open('temp_mcid_record.txt', 'a') as fp:
+            for i in range(self.ROW_NUM_FIGS):
+                for j in range(self.COL_NUM_FIGS):
+                    if self.fig_titles[i*self.COL_NUM_FIGS+j] != "":
+                        y = self.results[i*self.COL_NUM_FIGS+j] if len(self.results[i*self.COL_NUM_FIGS+j])!=0 else [0,]
+                        # x must be derived from y in case of race condition, resulting unequal size of x and y
+                        x = list(range(len(y)))
+                        # write microbatch no. to file for automative bandwidth control
+                        if self.fig_titles[i*self.COL_NUM_FIGS+j] == "Send Performance":
+                            fp.write(str(x[-1])+"\n")
+                        # slide in window size increments to reduce noise
+                        idx_max = max(len(self.results[i*self.COL_NUM_FIGS+j]) - 1, 0)
+                        x_max = int(ceil(idx_max / window_size)) * window_size
+                        x_max = max(PLOT_DATAPOINT_NUMBER, x_max)
+                        x_min = max(0, x_max - PLOT_DATAPOINT_NUMBER)
+                        self.graphWidgets[i*self.COL_NUM_FIGS+j].setXRange(x_min, x_max)
+                        y_max = max(self.results[i*self.COL_NUM_FIGS+j][x_min:min(x_max, idx_max)], default=1)
+                        self.graphWidgets[i*self.COL_NUM_FIGS+j].setYRange(0, y_max)
+                        self.plots[i*self.COL_NUM_FIGS+j].setData(x, y)
 
     def poll_fig_data(self, result_callback):
         while True:
@@ -1012,6 +1017,10 @@ def main() -> None:
         window = MainWindow(args.rank)
         window.show()
         app.exec()
+            
+        # delete temporal microbatch number recoding file
+        if os.path.exists("temp_mcid_record.txt"):
+            os.remove("temp_mcid_record.txt")
 
     t.join()
 

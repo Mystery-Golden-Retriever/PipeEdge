@@ -120,3 +120,5 @@ Point `runtime.py` to the YAML files using the options `-sm/--sched-models-file`
 The runtime passes these through to the previously compiled scheduler application, along with other configurations like the model name and microbatch size.
 Then map the hosts specified in the third YAML file to the distributed ranks in your runtime using the `-H/--hosts` option.
 Do not specify the `-pt/--partition` option, which is for manually specifying the schedule and takes precedence over automated scheduling.
+
+

@@ -63,4 +63,15 @@ To use `tc` command on the Jetson Orin devices, it requires some kernel functioi
 
         #!/bin/bash
 
+<<<<<<< HEAD
         sudo tc qdisc del dev eth0 root
+=======
+        sudo tc qdisc del dev eth0 root
+
+***
+## Automatic bandwidth control for experiment reproduction in ICASSP2023
+
+To reproduce the experiment results we show in the paper of ICASSP2023, one can use the 'auto_bandwidth_control.py' script. Right after boot up the PipeEdge system and click start button on the GUI panel, run command 
+
+`sudo python tools/auto_bandwidth_control.txt`
+>>>>>>> e6174d927ba8602c15b1f2515bcdb493cac0c3cc
