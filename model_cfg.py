@@ -12,17 +12,18 @@ _logger = logging.getLogger(__name__)
 
 _MODEL_CONFIGS = {}
 
-def _model_cfg_add(name, layers, weights_file, shard_module):
+def _model_cfg_add(name, layers, weights_file, shard_module, pruned_weights_file=''):
     _MODEL_CONFIGS[name] = {
         'name': name,
         'layers': layers,
         'weights_file': weights_file,
         'shard_module': shard_module,
+        'pruned_weights_file': pruned_weights_file
     }
 
 # Transformer blocks can be split 4 ways, e.g., where ViT-Base has 12 layers, we specify 12*4=48
 _model_cfg_add('google/vit-base-patch16-224', 48, 'ViT-B_16-224.npz',
-               vit.ViTShardForImageClassification)
+               vit.ViTShardForImageClassification, 'ViT-B_16-224_SNIP_pruned.npz')
 _model_cfg_add('google/vit-large-patch16-224', 96, 'ViT-L_16-224.npz',
                vit.ViTShardForImageClassification)
 # NOTE: This ViT-Huge model doesn't include classification, so the config must be extended
@@ -78,7 +79,7 @@ def save_model_weights_file(model_name: str, model_file: Optional[str]=None) -> 
     module.save_weights(model_name, model_file)
 
 def module_shard_factory(model_name: str, model_file: Optional[str], layer_start: int,
-                         layer_end: int, stage: int) -> ModuleShard:
+                         layer_end: int, stage: int, prune=False) -> ModuleShard:
     """Get a shard instance on the globally-configured `devices.DEVICE`."""
     # This works b/c all shard implementations have the same constructor interface
     if model_file is None:
@@ -89,7 +90,7 @@ def module_shard_factory(model_name: str, model_file: Optional[str], layer_start
     shard_config = ModuleShardConfig(layer_start=layer_start, layer_end=layer_end,
                                      is_first=is_first, is_last=is_last)
     module = _MODEL_CONFIGS[model_name]['shard_module']
-    shard = module(config, shard_config, model_file)
+    shard = module(config, shard_config, model_file, prune)
     _logger.info("======= %s Stage %d =======", module.__name__, stage)
     shard.to(device=devices.DEVICE)
     return shard
