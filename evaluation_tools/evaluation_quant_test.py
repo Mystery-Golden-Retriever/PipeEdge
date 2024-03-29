@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from src.pipeedge.quantization.clamp_op import _clamp_factor_gelu
+from pipeedge.quantization.clamp_op import _clamp_factor_gelu
 
 PLOT_BINS = 200
 

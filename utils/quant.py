@@ -2,7 +2,7 @@
 import math
 from typing import List, Tuple
 import torch
-from pipeedge.quantization.basic_op import compression_factor
+from pipeedge.quantization.basic_op_integer import compression_factor
 from .controller import AdaptiveIntegralXupController
 
 

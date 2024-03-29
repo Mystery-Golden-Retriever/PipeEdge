@@ -15,6 +15,8 @@ from transformers.models.vit.modeling_vit import (
 from .. import ModuleShard, ModuleShardConfig
 from . import TransformerShardData
 
+import pdb
+
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,7 @@ class ViTLayerShard(ModuleShard):
     @torch.no_grad()
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute layer shard."""
+        # pdb.set_trace()
         if self.has_layer(0):
             data_norm = self.layernorm_before(data)
             data = (self.self_attention(data_norm)[0], data)
@@ -160,6 +163,7 @@ class ViTModelShard(ModuleShard):
 
     @torch.no_grad()
     def forward(self, data: TransformerShardData) -> TransformerShardData:
+        # pdb.set_trace()
         """Compute shard layers."""
         if self.shard_config.is_first:
             data = self.embeddings(data)
@@ -220,6 +224,7 @@ class ViTShardForImageClassification(ModuleShard):
     @torch.no_grad()
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute shard layers."""
+        # pdb.set_trace()
         data = self.vit(data)
         if self.shard_config.is_last:
             data = self.classifier(data[:, 0, :])

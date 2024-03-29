@@ -59,26 +59,34 @@ def _make_shard(model_name, model_file, stage_layers, stage, q_bits):
     shard.eval()
     return shard
 
-def _forward_model(input_tensor, model_shards):
+def _forward_model(input_tensor, model_shards,ith_layer):
     num_shards = len(model_shards)
     temp_tensor = input_tensor
     for idx in range(num_shards):
         shard = model_shards[idx]
 
         # decoder
-        if idx != 0:
-            temp_tensor = forward_pre_hook_quant_decode(shard, temp_tensor)
+        # if idx != 0:
+        #     temp_tensor = forward_pre_hook_quant_decode(shard, temp_tensor)
 
+        
         # forward
         if isinstance(temp_tensor[0], tuple) and len(temp_tensor[0]) == 2:
             temp_tensor = temp_tensor[0]
         elif isinstance(temp_tensor, tuple) and isinstance(temp_tensor[0], torch.Tensor):
             temp_tensor = temp_tensor[0]
+        
         temp_tensor = shard(temp_tensor)
-
+        if isinstance(temp_tensor, tuple):
+            temp_tensor = temp_tensor[0]
+        
+        save_path = f"ResNet50_activation_data/batch_1/layer_{ith_layer}_x.npy"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        np.save(save_path, temp_tensor.detach().numpy())
+        break
         # encoder
-        if idx != num_shards-1:
-            temp_tensor = (forward_hook_quant_encode(shard, None, temp_tensor),)
+        # if idx != num_shards-1:
+        #     temp_tensor = (forward_hook_quant_encode(shard, None, temp_tensor),)
     return temp_tensor
 
 def evaluation(args):
@@ -138,31 +146,34 @@ def evaluation(args):
     stage_layers = [(parts[i], parts[i+1]) for i in range(0, len(parts), 2)]
     stage_quant = [int(i) for i in quant.split(',')] if quant else _get_default_quant(len(stage_layers))
 
-    # model construct
-    model_shards = []
-    q_bits = []
-    for stage in range(num_shards):
-        q_bits = torch.tensor((0 if stage == 0 else stage_quant[stage - 1], stage_quant[stage]))
-        model_shards.append(_make_shard(model_name, model_file, stage_layers, stage, q_bits))
-        model_shards[-1].register_buffer('quant_bit', torch.tensor(stage_quant[stage]), persistent=False)
-        model_shards[-1].register_buffer('e_bit', torch.tensor(e_bit), persistent=False)
-        model_shards[-1].register_buffer('is_Clamp', torch.tensor(is_Clamp), persistent=False)
+    for start in range(2,54):
+        stage_layers=[(1,start),(start+1,54)]
+        # model construct
+        model_shards = []
+        q_bits = []
+        for stage in range(num_shards):
+            q_bits = torch.tensor((0 if stage == 0 else stage_quant[stage - 1], stage_quant[stage]))
+            model_shards.append(_make_shard(model_name, model_file, stage_layers, stage, q_bits))
+            model_shards[-1].register_buffer('quant_bit', torch.tensor(stage_quant[stage]), persistent=False)
+            model_shards[-1].register_buffer('e_bit', torch.tensor(e_bit), persistent=False)
+            model_shards[-1].register_buffer('is_Clamp', torch.tensor(is_Clamp), persistent=False)
 
-    # run inference
-    start_time = time.time()
-    acc_reporter = ReportAccuracy(batch_size, output_dir, model_name, parts, stage_quant[0],e_bit,is_Clamp)
-    with torch.no_grad():
-        for batch_idx, (input, target) in enumerate(val_loader):
-            if batch_idx == num_stop_batch and num_stop_batch:
+        # run inference
+        start_time = time.time()
+        # acc_reporter = ReportAccuracy(batch_size, output_dir, model_name, parts, stage_quant[0],e_bit,is_Clamp)
+        with torch.no_grad():
+            for batch_idx, (input, target) in enumerate(val_loader):
+                if batch_idx == num_stop_batch and num_stop_batch:
+                    break
+                output = _forward_model(input, model_shards,start)
+                # _, pred = output.topk(1)
+                # pred = pred.t()
+                # acc_reporter.update(pred, target)
+                # acc_reporter.report()
                 break
-            output = _forward_model(input, model_shards)
-            _, pred = output.topk(1)
-            pred = pred.t()
-            acc_reporter.update(pred, target)
-            acc_reporter.report()
-    print(f"Final Accuracy: {100*acc_reporter.total_acc}; Quant Bitwidth: {stage_quant}")
-    end_time = time.time()
-    print(f"total time = {end_time - start_time}")
+        # print(f"Final Accuracy: {100*acc_reporter.total_acc}; Quant Bitwidth: {stage_quant}")
+        end_time = time.time()
+        print(f"total time = {end_time - start_time}")
 
 
 if __name__ == "__main__":
@@ -201,21 +212,22 @@ if __name__ == "__main__":
     dset.add_argument("--dataset-name", type=str, default='ImageNet', choices=['CoLA', 'ImageNet'],
                       help="dataset to use")
     
-    # In local, use the below commented code, and check if you have already downloaded the dataset
-    # dset.add_argument("--dataset-root", type=str, default= "",
-    #                   help="dataset root directory (e.g., for 'ImageNet', must contain "
-    #                        "'ILSVRC2012_devkit_t12.tar.gz' and at least one of: "
-    #                        "'ILSVRC2012_img_train.tar', 'ILSVRC2012_img_val.tar'")
-    # dset.add_argument("--dataset-split", default='ILSVRC2012_img_val/', type=str,
-    #                   help="dataset split (depends on dataset), e.g.: train, val, validation, test")
     
-    # In discovery, use the below commented code, you dont need to dowanload the dataset to the discovery.
-    dset.add_argument("--dataset-root", type=str, default= "/project/jpwalter_148/hnwang/datasets/ImageNet/",
+    # In local, use the below commented code, and check if you have already downloaded the dataset
+    dset.add_argument("--dataset-root", type=str, default= "",
                       help="dataset root directory (e.g., for 'ImageNet', must contain "
                            "'ILSVRC2012_devkit_t12.tar.gz' and at least one of: "
                            "'ILSVRC2012_img_train.tar', 'ILSVRC2012_img_val.tar'")
-    dset.add_argument("--dataset-split", default='val', type=str,
+    dset.add_argument("--dataset-split", default='ILSVRC2012_img_val/', type=str,
                       help="dataset split (depends on dataset), e.g.: train, val, validation, test")
+    
+    # In discovery, use the below commented code, you dont need to dowanload the dataset to the discovery.
+    # dset.add_argument("--dataset-root", type=str, default= "/project/jpwalter_148/hnwang/datasets/ImageNet/",
+    #                   help="dataset root directory (e.g., for 'ImageNet', must contain "
+    #                        "'ILSVRC2012_devkit_t12.tar.gz' and at least one of: "
+    #                        "'ILSVRC2012_img_train.tar', 'ILSVRC2012_img_val.tar'")
+    # dset.add_argument("--dataset-split", default='val', type=str,
+    #                   help="dataset split (depends on dataset), e.g.: train, val, validation, test")
     
     dset.add_argument("--dataset-indices-file", default=None, type=str,
                       help="PyTorch or NumPy file with precomputed dataset index sequence")
