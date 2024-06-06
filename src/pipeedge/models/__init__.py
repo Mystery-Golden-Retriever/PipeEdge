@@ -40,6 +40,8 @@ def get_microbatch_size(shard_data: ModuleShardData, verify: bool=False):
     """Get the microbatch size from shard data."""
     if isinstance(shard_data, Tensor):
         shard_data = (shard_data,)
+    elif isinstance(shard_data, Tuple) and isinstance(shard_data[0], Tuple):
+        shard_data = shard_data[0]
     ubatch_size = 0 if len(shard_data) == 0 else len(shard_data[0])
     if verify:
         # Sanity check that tensors are the same length

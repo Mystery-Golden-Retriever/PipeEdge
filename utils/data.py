@@ -3,6 +3,25 @@ import random
 from typing import Callable, Optional, Sequence, Tuple, Union
 import torch
 from torch.utils.data import Dataset, Subset
+from torchvision.transforms import ToTensor, Normalize, Resize, Compose
+
+
+class ViTFeatureExtractorTransforms:
+    def __init__(self, feature_extractor):
+        transform = []
+
+        if feature_extractor.do_resize:
+            transform.append(Resize([feature_extractor.size, feature_extractor.size]))
+
+        transform.append(ToTensor())
+
+        if feature_extractor.do_normalize:
+            transform.append(Normalize(feature_extractor.image_mean, feature_extractor.image_std))
+
+        self.transform = Compose(transform)
+
+    def __call__(self, x):
+        return self.transform(x)
 
 class RolloverTensorDataset(Dataset[Tuple[torch.Tensor, ...]]):
     """Like `TensorDataset`, but rolls over when the requested length exceeds the actual length."""
@@ -87,3 +106,4 @@ def load_dataset_imagenet(feature_extractor: Callable, root: str, split: str='tr
         # feature extractor expects a batch but we only have a single image, so drop the outer dim
         return pixels[0]
     return ImageNet(root, split=split, transform=transform)
+

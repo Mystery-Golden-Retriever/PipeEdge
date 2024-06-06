@@ -1,0 +1,21 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=6GB
+#SBATCH --time=8:00:00
+#SBATCH --account=jpwalter_148
+
+module purge
+module load gcc/8.3.0
+#module load python/3.7
+
+#conda init bash
+conda activate EdgePipe
+cd /home1/haonanwa/projects/PipeEdge/
+# test ViT Base
+python3 evaluation.py -b 1 -pt $1 -q $2,$2 --clamp -o /home1/haonanwa/projects/PipeEdge/test_result_realbound_search_range
+
+# test ViT Large
+# python3 evaluation.py -b 64 -pt $1 -q $2,$2 -m google/vit-large-patch16-224

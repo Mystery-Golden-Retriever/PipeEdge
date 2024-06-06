@@ -12,6 +12,7 @@ from PIL import Image
 import requests
 import torch
 from torch.utils.data import DataLoader, Dataset
+from torchvision.datasets import ImageNet
 from transformers import AutoTokenizer, DeiTFeatureExtractor, ViTFeatureExtractor
 from pipeedge.comm.p2p import DistP2pContext
 from pipeedge.comm.rpc import DistRpcContext, tensorpipe_rpc_backend_options_factory
@@ -27,11 +28,24 @@ import monitoring
 from utils import data, threads
 from utils import quant as quantutil
 
+from torchvision import transforms
+
+
 logger = logging.getLogger(__name__)
 
 ## ground truth: Egyptian cat
-IMG_URL = 'http://images.cocodataset.org/val2017/000000039769.jpg'
-IMG_LABEL_IDX = 285
+# IMG_URL = 'http://images.cocodataset.org/val2017/000000039769.jpg'
+# IMG_LABEL_IDX = 285
+
+# More Ground Truth Samples From https://github.com/EliSchwartz/imagenet-sample-images/tree/master
+# IMG_URL = 'https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01440764_tench.JPEG'
+# IMG_LABEL_IDX = 0
+
+# IMG_URL = 'https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01514859_hen.JPEG'
+# IMG_LABEL_IDX = 8
+
+IMG_URL = 'https://raw.githubusercontent.com/EliSchwartz/imagenet-sample-images/master/n01580077_jay.JPEG'
+IMG_LABEL_IDX = 17
 
 CMD_STOP = 0
 CMD_SCHED = 1
@@ -366,6 +380,15 @@ def load_dataset(dataset_cfg: dict, model_name: str, batch_size: int, ubatch_siz
                           'facebook/deit-small-distilled-patch16-224',
                           'facebook/deit-tiny-distilled-patch16-224']:
             feature_extractor = DeiTFeatureExtractor.from_pretrained(model_name)
+
+        elif model_name.startswith('torchvision'):
+            feature_extractor = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225]),
+            transforms.Lambda(lambda x: x.unsqueeze(0))
+            ])
         else:
             feature_extractor = ViTFeatureExtractor.from_pretrained(model_name)
         return feature_extractor
@@ -375,34 +398,59 @@ def load_dataset(dataset_cfg: dict, model_name: str, batch_size: int, ubatch_siz
     indices = dataset_cfg['indices']
     dataset_shuffle = dataset_cfg['shuffle']
     #TODO We need to create workflow taking input from keyboard and tokenize the input to LLMs.
-    if dataset_name == 'CoLA' or model_name == 'facebook/opt-350m':
+    if dataset_name == 'CoLA' and model_name == 'facebook/opt-350m':
+        # for llm models
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         dataset = data.load_dataset_glue(tokenizer, 'cola', dataset_split, ubatch_size)
         dataset = data.load_dataset_subset(dataset, indices=indices, max_size=batch_size,
                                            shuffle=dataset_shuffle)
-    elif dataset_name == 'ImageNet':
-        if dataset_root is None:
-            dataset_root = 'ImageNet'
-            logging.info("Dataset root not set, assuming: %s", dataset_root)
-        feature_extractor = _get_feature_extractor()
-        dataset = data.load_dataset_imagenet(feature_extractor, dataset_root, split=dataset_split)
-        dataset = data.load_dataset_subset(dataset, indices=indices, max_size=batch_size,
-                                           shuffle=dataset_shuffle)
-    elif model_name in ['bert-base-uncased', 'bert-large-uncased',
-                        'textattack/bert-base-uncased-CoLA']:
-        with np.load("bert_input.npz") as bert_inputs:
-            inputs_sentence = list(bert_inputs['input'][:batch_size])
-            labels = torch.tensor(bert_inputs['label'][:batch_size])
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        inputs = tokenizer(inputs_sentence, padding=True, truncation=True, return_tensors="pt")['input_ids']
-        dataset = data.RolloverTensorDataset(batch_size, inputs, labels)
+    elif model_name.startswith('torchvision'):
+        # for cnn models
+        if dataset_name == 'ImageNet':
+            transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225]),
+            # transforms.Lambda(lambda x: x.unsqueeze(0))
+            ])
+            dataset = ImageNet(dataset_root, split=dataset_split, transform=transform)
+        else:
+            image = Image.open(requests.get(IMG_URL, stream=True, timeout=60).raw)
+            feature_extractor = _get_feature_extractor()
+            inputs = feature_extractor(image)
+            dataset = data.RolloverTensorDataset(batch_size, inputs, torch.tensor([IMG_LABEL_IDX]))
     else:
-        feature_extractor = _get_feature_extractor()
-        ## random data
-        # image = torch.randn(3, 384, 384)
-        image = Image.open(requests.get(IMG_URL, stream=True, timeout=60).raw)
-        inputs = feature_extractor(images=[image], return_tensors="pt")['pixel_values']
-        dataset = data.RolloverTensorDataset(batch_size, inputs, torch.tensor([IMG_LABEL_IDX]))
+        # for transformer models
+        if dataset_name == 'CoLA':
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            dataset = data.load_dataset_glue(tokenizer, 'cola', dataset_split, ubatch_size)
+            dataset = data.load_dataset_subset(dataset, indices=indices, max_size=batch_size,
+                                            shuffle=dataset_shuffle)
+        elif dataset_name == 'ImageNet':
+            if dataset_root is None:
+                dataset_root = 'ImageNet'
+                logging.info("Dataset root not set, assuming: %s", dataset_root)
+            feature_extractor = _get_feature_extractor()
+            dataset = data.load_dataset_imagenet(feature_extractor, dataset_root, split=dataset_split)
+            dataset = data.load_dataset_subset(dataset, indices=indices, max_size=batch_size,
+                                            shuffle=dataset_shuffle)
+        elif model_name in ['bert-base-uncased', 'bert-large-uncased',
+                            'textattack/bert-base-uncased-CoLA']:
+            with np.load("bert_input.npz") as bert_inputs:
+                inputs_sentence = list(bert_inputs['input'][:batch_size])
+                labels = torch.tensor(bert_inputs['label'][:batch_size])
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            inputs = tokenizer(inputs_sentence, padding=True, truncation=True, return_tensors="pt")['input_ids']
+            dataset = data.RolloverTensorDataset(batch_size, inputs, labels)
+        else:
+            feature_extractor = _get_feature_extractor()
+            ## random data
+            # image = torch.randn(3, 384, 384)
+            image = Image.open(requests.get(IMG_URL, stream=True, timeout=60).raw)
+            inputs = feature_extractor(images=[image], return_tensors="pt")['pixel_values']
+            dataset = data.RolloverTensorDataset(batch_size, inputs, torch.tensor([IMG_LABEL_IDX]))
+    
     return dataset
 
 
@@ -721,6 +769,7 @@ def main() -> None:
     logger.info("Device: %s", devices.DEVICE)
     logger.debug("# parallel intra nodes threads: %d", torch.get_num_threads())
     logger.debug("# parallel inter nodes threads: %d", torch.get_num_interop_threads())
+    
     if args.comm == 'p2p':
         run_pipeline_p2p(args.worldsize, args.rank, args.model_name, args.model_file,
                          args.batch_size, args.ubatch_size, partition, quant, rank_order,
