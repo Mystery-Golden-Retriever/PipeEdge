@@ -7,8 +7,8 @@ from typing import List, Mapping, Optional, Tuple, Type
 import yaml
 import torch
 from torch.distributed import rpc
-from pipeedge.comm.rpc import DistRpcContext
-from pipeedge.sched import revauct, yaml_files
+from src.pipeedge.comm.rpc import DistRpcContext
+from src.pipeedge.sched import revauct, yaml_files
 import model_cfg
 import runtime
 

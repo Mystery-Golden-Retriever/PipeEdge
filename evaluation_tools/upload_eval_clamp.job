@@ -1,0 +1,16 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64GB
+#SBATCH --time=10:00:00
+#SBATCH --account=jpwalter_148
+
+# conda activate primary
+cd /home1/zeliliu/pipeedge/pipeedge-mixed-quant
+
+# python evaluation.py -n 32 -pt $1 -q $2,$2 -e $3 -m google/vit-base-patch16-224 -clamp
+# python evaluation.py -n 32 -pt $1 -q $2,$2 -e $3 -m google/vit-large-patch16-224 -clamp
+# python evaluation.py -n 32 -pt $1 -q $2,$2 -e $3 -m torchvision/resnet18 -clamp
+python evaluation.py -n 32 -pt $1 -q $2,$2 -e $3 -m torchvision/resnet50 -clamp

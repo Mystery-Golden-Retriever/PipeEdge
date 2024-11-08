@@ -4,10 +4,10 @@ from typing import Any, Callable, List, Optional, Tuple
 from torch.distributed import rpc as trpc
 from torchvision import models
 from transformers import AutoConfig
-from pipeedge.comm import p2p, rpc
-from pipeedge.models import ModuleShard, ModuleShardConfig
-from pipeedge.models.cnn import alexnet, resnet
-from pipeedge.models.transformers import bert, deit, vit
+from src.pipeedge.comm import p2p, rpc
+from src.pipeedge.models import ModuleShard, ModuleShardConfig
+from src.pipeedge.models.cnn import alexnet, resnet
+from src.pipeedge.models.transformers import bert, deit, vit
 import devices
 
 _logger = logging.getLogger(__name__)

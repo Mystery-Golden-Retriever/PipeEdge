@@ -2,7 +2,7 @@
 """Test comm.rpc.DistRpcContext."""
 import os
 import unittest
-from pipeedge.comm.rpc import DistRpcContext
+from src.pipeedge.comm.rpc import DistRpcContext
 
 MASTER_ADDR = 'localhost'
 MASTER_PORT = '29501'

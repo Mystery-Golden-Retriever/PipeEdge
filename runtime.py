@@ -14,14 +14,14 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageNet
 from transformers import AutoTokenizer, DeiTFeatureExtractor, ViTFeatureExtractor
-from pipeedge.comm.p2p import DistP2pContext
-from pipeedge.comm.rpc import DistRpcContext, tensorpipe_rpc_backend_options_factory
-from pipeedge import models
-from pipeedge.quantization.basic_op import (
-    compression_factor, tensor_encode_outerdim, tensor_decode_outerdim
-)
-from pipeedge.quantization.clamp_op import clamp_banner2019_gelu, clamp_banner2019_laplace
-from pipeedge.sched.scheduler import sched_pipeline
+from src.pipeedge.comm.p2p import DistP2pContext
+from src.pipeedge.comm.rpc import DistRpcContext, tensorpipe_rpc_backend_options_factory
+from src.pipeedge import models
+import src.pipeedge.quantization.basic_op_float as basic_op_float
+import src.pipeedge.quantization.basic_op_integer as basic_op_integer
+from src.pipeedge.quantization.basic_op_integer import compression_factor
+from src.pipeedge.quantization.clamp_op import clamp_banner2019_gelu, clamp_banner2019_laplace
+from src.pipeedge.sched.scheduler import sched_pipeline
 import devices
 import model_cfg
 import monitoring
@@ -29,7 +29,6 @@ from utils import data, threads
 from utils import quant as quantutil
 
 from torchvision import transforms
-
 
 logger = logging.getLogger(__name__)
 
@@ -91,20 +90,27 @@ def forward_hook_quant_encode(module, _input_arg, output: Union[torch.Tensor, Tu
         output = (output,)
     assert isinstance(output, tuple)
     quant_bit = module.quant_bit.item()
+    e_bit=module.e_bit.item()
+    is_Clamp=module.is_Clamp.item()
+    assert 0<=e_bit<=quant_bit-1
     comm_tuple = []
     for tensor in output:
         assert isinstance(tensor, torch.Tensor)
-        if quant_bit > 0:
-            clamp = clamp_banner2019_laplace if tensor.min() < 0.2 else clamp_banner2019_gelu
-            tensor = clamp(tensor, quant_bit)
-        stacked_tensor = tensor_encode_outerdim(tensor, quant_bit)
+        if is_Clamp:
+            if quant_bit > 0:
+                clamp = clamp_banner2019_laplace if tensor.min() < 0.2 else clamp_banner2019_gelu
+                tensor = clamp(tensor, quant_bit)
+        if e_bit==0:
+            stacked_tensor = basic_op_integer.tensor_encode_outerdim(tensor, quant_bit)
+        else:
+            stacked_tensor = basic_op_float.tensor_encode_outerdim(tensor, quant_bit,e_bit)
         comm_tuple += stacked_tensor
     # Measure work as the microbatch size, but quantization only does work if quant_bit > 0.
     n_items = models.get_microbatch_size(output[0], verify=True) if quant_bit > 0 else 0
     monitoring.iteration(MONITORING_KEY_QUANT_ENCODE, work=n_items, accuracy=quant_bit)
     return tuple(comm_tuple)
 
-def forward_pre_hook_quant_decode(_module, input_arg: Tuple[Tuple[torch.Tensor, ...]]):
+def forward_pre_hook_quant_decode(module, input_arg: Tuple[Tuple[torch.Tensor, ...]]):
     """decode tensor in the preforward hook (before each module)"""
     monitoring.iteration_start(MONITORING_KEY_QUANT_DECODE)
     assert isinstance(input_arg, tuple)
@@ -114,11 +120,16 @@ def forward_pre_hook_quant_decode(_module, input_arg: Tuple[Tuple[torch.Tensor, 
     assert isinstance(input_tensors, tuple)
     assert len(input_tensors)%5 == 0
     assert len(input_tensors) >= 5
-    quant_bit = input_tensors[4][0].item() # assume the same quantization bitwidth for all items
+    quant_bit = module.quant_bit.item()
+    e_bit=module.e_bit.item()
+    # quant_bit = input_tensors[4][0].item() # assume the same quantization bitwidth for all items
     forward_tensor = []
     for i in range(len(input_tensors) // 5):
         input_tensor = input_tensors[i*5:i*5+5]
-        batched_tensor = tensor_decode_outerdim(input_tensor)
+        if e_bit==0:
+            batched_tensor = basic_op_integer.tensor_decode_outerdim(input_tensor)
+        else:
+            batched_tensor = basic_op_float.tensor_decode_outerdim(input_tensor)
         forward_tensor.append(batched_tensor)
     # Return value(s) should be wrapped in an outer tuple, like input_arg
     # The tuple will be unpacked when forward() is invoked, which must yield a single parameter

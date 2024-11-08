@@ -11,7 +11,7 @@ class ViTFeatureExtractorTransforms:
         transform = []
 
         if feature_extractor.do_resize:
-            transform.append(Resize([feature_extractor.size, feature_extractor.size]))
+            transform.append(Resize([feature_extractor.size['height'], feature_extractor.size['width']]))
 
         transform.append(ToTensor())
 

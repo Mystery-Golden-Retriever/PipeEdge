@@ -1,191 +1,133 @@
-# PipeEdge
+# Mixture of Quantization (MoQ)
 
-PipeEdge is an inference framework that pipelines neural network (e.g., transformer) model shards on distributed devices.
-It includes an automatic partition scheduler which maps model layers to devices to optimize throughput.
+Mixture of Quantization is an inference system that slices models and applies different quant formats for the communication of acitivation data.
 
+# Setup
+- **Fork (and star) my repo**, then clone the forked version to your local machine or discovery
+- If missing any package when running the code, install it using pip or conda regularly
+- Note that, for `transformers` package, `version=4.18.0` is highly recommended in this project.
 
-## Prerequisites
-
-System dependencies:
-
-* Python >= 3.7
-* Compiler with C++17 support
-* CMake >= 3.8 (for C++17 support)
-* [yaml-cpp](https://github.com/jbeder/yaml-cpp) >= 0.6.0
-
-On MacOS:
-
-```sh
-brew install cmake yaml-cpp
-```
-
-On Debian (>= buster) or Debian-based Linux (including Ubuntu >= 20.04):
-
-```sh
-sudo apt-get install build-essential cmake libyaml-cpp-dev
-```
-
-We recommend using a Python virtual environment (`virtualenv`), e.g., on Debian-based Linux:
-
-```sh
-sudo apt-get install python3-venv
-```
-
-or directly with a system-installed `pip`:
-
-```sh
-pip3 install virtualenv
-```
-
-Create and activate the virtualenv:
-
-```sh
-python3 -m venv .venv
-. .venv/bin/activate
-```
-
-Install the development package, Python package dependencies, and runtime application dependencies with:
-
-```sh
-pip install -U pip
-pip install -e '.[runtime]'
-```
-
-Download model weight files (ViT files are from [Google Cloud](https://console.cloud.google.com/storage/browser/vit_models)):
-
+#### Model Preparation
+- run save_model_weights.py
 ```sh
 python save_model_weights.py
 ```
+- If you've previously downloaded the model, delete and re-download due to modifications in this version.
+ - Ensure you successfully download `ViT-B_16-224.npz`, `ViT-L_16-224.npz`, and `resnet18.pt`.
 
-### Optional dependencies:
+#### Dataset Preparation
+- On local: 
+	- Download the dataset from [ImageNet Large Scale Visual Recognition Challenge 2012 (ILSVRC2012) validation dataset (6.3GB)](https://www.image-net.org/challenges/LSVRC/index.php).
+  - Unzip and run `valprep.sh` on the downloaded file.
+- On Discovery
+	- modify `evaluation.py` from lines 204 to 218.
+	
+   
 
-System dependencies required for runtime monitoring:
+#### Project Structure
+- Create a folder called `result` in your project; 
+- if  `result` already exists, ensure it is empty by deleting all inside files.
+- **Your project should look like this:**
+```sh
+.
+├── ViT-B_16-224.npz
+├── ViT-L_16-224.npz
+├── resnet18.pt
+├── resnet50.pt
+├── evaluation.py
+├── runtime.py
+├── get_activation_data.py
+├── evaluation_tools
+│   ├── evaluation_partition.sh
+│   └── upload_eval.job
+├── pipeedge
+│   ├── quantization
+│   └── others
+├── ILSVRC2012_img_val
+│   ├── n0......
+│   │   ├── (lots of).JPEG
+│   └── n0......
+├── result
+├── others
+```
 
-* [EnergyMon](https://github.com/energymon/energymon) - with a system-appropriate "default" library (which may have transitive dependencies)
+# Main Instruction
 
+#### Running on Local
+- **Command**:
+```sh
+python evaluation.py -pt 1,10,11,21 -q 8,8 -e 6 -m torchvision/resnet18 -clamp
+```
+- Meaning: Quantize at the 10th layer using 8-bit total (6 bits for exponential) and clamping for the resnet18 model.
 
-## Usage
+-   Note1: Please wait at the beginning as the program preprocesses the dataset and model. Results will appear line by line, as well as in the `result/{model_name}/{job_info}.txt`
 
-For full usage help, run:
+-   Note2: If using `-e 0`, it will automatically switch to `Integer Quant`, otherwise, it will use `Float-Point Quant`
+
+#### Running on Discovery
+- Modify `evaluation.py` from lines 204 to 218, switch the dataset source.
+- Delete any files inside the result!!! or it will raise error.
+- Modify  `evaluation_tools/upload_eval.job` 
+	- Change `cd`  to your own path of Discovery.
+	- Choose the corresponding command for your model
+- Modify `evaluation_tools/evaluation_partition.sh`
+	- choose the corresponding command for your model
+-   **Command Running on Discovery**:
+```sh
+cd evaluation_tools
+./evaluation_partition.sh
+```
+-   You will see Discovery generating thousands of jobs.
+    -   These are combinations of (bit, e, layer).
+-   Results appear at `result/{model_name}/{job_name}.txt`. If you see the txt file, basically it is running successfully.
+-   Outputs are also available at `evaluation_tools/slurm_{job_id}.out`.
+	- you need to check this `.out` file to check if there is any error, once you submit the job.
+- Note: You may need to give `evaluation_partition.sh` root permission first.
+
+# Useful Command Lines
+
+#### Check all jobs Status
+```sh
+squeue --me
+```
+
+#### Check single job status
+```sh
+jobinfo {job_id}
+```
+
+#### Count Running/Waiting Jobs
+```sh
+squeue --me | awk '
+BEGIN {
+    abbrev["R"]="(Running)"
+    abbrev["PD"]="(Pending)"
+    abbrev["CG"]="(Completing)"
+    abbrev["F"]="(Failed)"
+}
+NR>1 {a[$5]++}
+END {
+    for (i in a) {
+        printf "%-2s %-12s %d\n", i, abbrev[i], a[i]
+    }
+}'
+```
+
+#### Cancel all jobs (if you find some error)
+```sh
+scancel --me
+```
+
+#### Delete all `.out` files in evaluation_tools (if you don't want the new `.out` mixed with old file)
 
 ```sh
-python runtime.py -h
+find . -type f -name "*.out" -exec rm {} +
 ```
 
-To run with default parameters (using ViT-Base) on a single node:
+# Some important files
 
-```sh
-python runtime.py 0 1
-```
-
-To run on multiple nodes, e.g., with 2 stages and even partitioning, on rank 0:
-
-```sh
-python runtime.py 0 2 -pt 1,24,25,48
-```
-
-and on rank 1:
-
-```sh
-python runtime.py 1 2 -pt 1,24,25,48
-```
-
-### Partitioning
-
-For example, the ViT-Base model has 12 layers, so the range is [1, 12*4] = [1, 48].
-
-An even partitioning for 2 nodes is:
-```
-partition = [1,24,25,48]
-```
-
-An uneven partitioning for 2 nodes could be:
-```
-partition = [1,47,48,48]
-```
-
-A partitioning for 4 nodes could be:
-```
-partition = [1,4,5,8,9,20,21,48]
-```
-
-
-## Automatic Partition Scheduling
-
-In summary, the `sched-pipeline` scheduling application uses three input YAML files to map model partitions to devices (hosts).
-Automated profiling helps produce two of these files; the third lists available hosts and is straightforward to create for your deployment environment.
-For detailed instructions and documentation, see [README_Profiler.md](README_Profiler.md) and [README_Scheduler.md](README_Scheduler.md).
-
-Point `runtime.py` to the YAML files using the options `-sm/--sched-models-file`, `--sdt/--sched-dev-types-file`, and `-sd/--sched-dev-file`.
-The runtime passes these through to the previously compiled scheduler application, along with other configurations like the model name and microbatch size.
-Then map the hosts specified in the third YAML file to the distributed ranks in your runtime using the `-H/--hosts` option.
-Do not specify the `-pt/--partition` option, which is for manually specifying the schedule and takes precedence over automated scheduling.
-
-
-## Datasets
-
-### GLUE CoLA
-
-Supported by the following models:
-
-* textattack/bert-base-uncased-CoLA
-
-The dataset will be automatically downloaded from [huggingface.co](https://huggingface.co/datasets/glue).
-
-Use in `runtime.py` with the option(s): `--dataset-name=CoLA`
-
-### ImageNet
-
-Supported by the following models:
-
-* google/vit-base-patch16-224
-* google/vit-large-patch16-224
-* facebook/deit-base-distilled-patch16-224
-* facebook/deit-small-distilled-patch16-224
-* facebook/deit-tiny-distilled-patch16-224
-
-This dataset cannot be downloaded automatically because a login is required to access the files.
-Register with [image-net.org](https://www.image-net.org/), then [download](https://image-net.org/challenges/LSVRC/2012/2012-downloads.php) `ILSVRC2012_devkit_t12.tar.gz` and at least one of `ILSVRC2012_img_train.tar` and `ILSVRC2012_img_val.tar`.
-Place the files in their own directory.
-The archives will be automatically parsed and extracted into a usable folder structure within the same directory.
-
-Use in `runtime.py` with the option(s): `--dataset-name=ImageNet --dataset-root=/path/to/archive_dir`
-
-
-## Citation
-
-If using this software for scientific research or publications, please cite as:
-
-Yang Hu, Connor Imes, Xuanang Zhao, Souvik Kundu, Peter A. Beerel, Stephen P. Crago, John Paul Walters, "PipeEdge: Pipeline Parallelism for Large-Scale Model Inference on Heterogeneous Edge Devices," 2022 25th Euromicro Conference on Digital System Design (DSD), 2022, pp. 298-307, doi: [10.1109/DSD57027.2022.00048](https://doi.org/10.1109/DSD57027.2022.00048).
-
-```BibTex
-@INPROCEEDINGS{PipeEdge,
-  author={Hu, Yang and Imes, Connor and Zhao, Xuanang and Kundu, Souvik and Beerel, Peter A. and Crago, Stephen P. and Walters, John Paul},
-  booktitle={2022 25th Euromicro Conference on Digital System Design (DSD)},
-  title={{PipeEdge}: Pipeline Parallelism for Large-Scale Model Inference on Heterogeneous Edge Devices},
-  year={2022},
-  pages={298-307},
-  doi={10.1109/DSD57027.2022.00048}}
-```
-
-Or, as appropriate:
-
-```BibTex
-@INPROCEEDINGS{QuantPipe,
-  author={Wang, Haonan and Imes, Connor and Kundu, Souvik and Beerel, Peter A. and Crago, Stephen P. and Paul Walters, John},
-  booktitle={ICASSP 2023 - 2023 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
-  title={{QuantPipe}: Applying Adaptive Post-Training Quantization For Distributed Transformer Pipelines In Dynamic Edge Environments},
-  year={2023},
-  pages={1-5},
-  doi={10.1109/ICASSP49357.2023.10096632}}
-```
-
-```BibTex
-@INPROCEEDINGS{PipeEdgeRevAuct,
-  author={Imes, Connor and King, David W. and Walters, John Paul},
-  booktitle={2023 Eighth International Conference on Fog and Mobile Edge Computing (FMEC)},
-  title={Distributed Edge Machine Learning Pipeline Scheduling with Reverse Auctions},
-  year={2023},
-  pages={196-203},
-  doi={10.1109/FMEC59375.2023.10306169}}
-```
+- Core code of quantization: `pipeedge\quantization`
+- Download model weight: `save_model_weights.py`
+- About the model: `README_Profiler.md`
+- About the testbed, pipeedge: `README_Pipeedge.md`
+- Get model activation data per layer: `get_activation_data.py`
