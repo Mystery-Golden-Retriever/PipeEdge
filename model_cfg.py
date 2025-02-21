@@ -67,7 +67,7 @@ def get_model_layers(model_name: str) -> int:
     """Get a model's layer count."""
     return _MODEL_CONFIGS[model_name]['layers']
 
-def get_model_config(model_name: str, model_file) -> Any:
+def get_model_config(model_name: str, model_file = None) -> Any:
     """Get a model's config."""
     # We'll need more complexity if/when we add support for models not from `transformers`
     if model_name.split('/')[0] == 'torchvision':

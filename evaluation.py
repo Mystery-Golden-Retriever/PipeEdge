@@ -3,6 +3,7 @@ import os
 import argparse
 import time
 import torch
+import numpy as np
 from typing import List
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder, ImageNet
@@ -120,35 +121,32 @@ def evaluation(args, dataset_cfg):
         shuffle=True,
         pin_memory=True
     )
-    if(prune):
-        pruned_model_file = model_cfg._MODEL_CONFIGS[model_name]['pruned_weights_file']   
-        if(os.path.isfile(pruned_model_file)):
-            print('Pruned weights file already exists')
-            model_file = pruned_model_file
-        else:
-            # dataset_split = 'train'
-            print("keep ratio : ", keep_ratio, ",      train_data size : ", train_batch_size)
-            train_dataset = ImageFolder(os.path.join(dataset_path, 'train'), transform = val_transform)
-            train_loader = DataLoader(
-                train_dataset,
-                batch_size = train_batch_size,
-                shuffle=True,
-                pin_memory=True
-            )
-            for ubatch, ubatch_labels in train_loader:
-                config = model_cfg.get_model_config(model_name)
-                shard_config = model_cfg.ModuleShardConfig(layer_start=1, layer_end=model_cfg.get_model_layers(model_name),
-                                                is_first=True, is_last=True)
-                model_file = model_cfg.get_model_default_weights_file(model_name)
-                
-                model = model_cfg._MODEL_CONFIGS[model_name]['shard_module'](config, shard_config, model_file)
-                
-                weights = model.prune_snip(ubatch, ubatch_labels, keep_ratio)
 
-                np.savez(pruned_model_file, **weights)
-                print(pruned_model_file + ' was created successfully')
-                model_file = pruned_model_file
-                break
+    if prune:
+        pruned_model_file = model_cfg._MODEL_CONFIGS[model_name]['pruned_weights_file']
+        # dataset_split = 'train'
+        print("keep ratio : ", keep_ratio, ",      train_data size : ", train_batch_size)
+        train_dataset = ImageFolder(os.path.join(dataset_path, 'train'), transform = val_transform)
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size = train_batch_size,
+            shuffle=True,
+            pin_memory=True
+        )
+        for ubatch, ubatch_labels in train_loader:
+            config = model_cfg.get_model_config(model_name)
+            shard_config = model_cfg.ModuleShardConfig(layer_start=1, layer_end=model_cfg.get_model_layers(model_name),
+                                            is_first=True, is_last=True)
+            model_file = model_cfg.get_model_default_weights_file(model_name)
+            
+            model = model_cfg._MODEL_CONFIGS[model_name]['shard_module'](config, shard_config, model_file)
+            
+            weights = model.prune_snip(ubatch, ubatch_labels, keep_ratio)
+
+            np.savez(pruned_model_file, **weights)
+            print('Pruning successfully.')
+            model_file = pruned_model_file
+            break
 
     def _get_default_quant(n_stages: int) -> List[int]:
         return [0] * n_stages

@@ -275,21 +275,27 @@ class ViTShardForImageClassification(ModuleShard):
 
     #SNIP Algorithm on Vit model
     def prune_snip(self, ubatch, ubatch_labels, keep_ratio = 0.9):
+        # import ipdb; ipdb.set_trace()
         net = copy.deepcopy(self)
 
         # Monkey-patch the Linear and Conv2d layer to learn the multiplicative mask
         # instead of the weights
+        layer_idx = 0
         for layer in net.modules():
-            if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
+            # we don't prune the patch embeddings in ViT, so no Conv2d
+            # if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
+            if isinstance(layer, nn.Linear):
                 layer.weight_mask = nn.Parameter(torch.ones_like(layer.weight))
-                nn.init.xavier_normal_(layer.weight) 
+                # nn.init.xavier_normal_(layer.weight) 
+                # nn.init.normal_(layer.weight, mean=0.0, std=0.02)
                 layer.weight.requires_grad = False
             # Override the forward methods:
-            if isinstance(layer, nn.Conv2d):
-                layer.forward = types.MethodType(snip_forward_conv2d, layer)
+            # if isinstance(layer, nn.Conv2d):
+            #     layer.forward = types.MethodType(snip_forward_conv2d, layer)
         
             if isinstance(layer, nn.Linear):
                 layer.forward = types.MethodType(snip_forward_linear, layer)
+            
 
         # forward and backward
         # Compute gradients (but don't apply them)
@@ -301,7 +307,8 @@ class ViTShardForImageClassification(ModuleShard):
 
         grads_abs = []
         for layer in net.modules():
-            if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
+            if isinstance(layer, nn.Linear):
+            # if isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear):
                 grads_abs.append(torch.abs(layer.weight_mask.grad))
 
         all_scores = torch.cat([torch.flatten(x) for x in grads_abs])
@@ -316,15 +323,20 @@ class ViTShardForImageClassification(ModuleShard):
         for g in grads_abs:
             keep_masks.append(((g / norm_factor) >= acceptable_score).float())
     
-        print(torch.sum(torch.cat([torch.flatten(x == 1) for x in keep_masks])))
+        # print(torch.sum(torch.cat([torch.flatten(x == 1) for x in keep_masks])))
 
 
         prunable_layers = filter(
-            lambda layer: isinstance(layer, nn.Conv2d) or isinstance(
-                layer, nn.Linear), self.modules())
-    
+            lambda layer: isinstance(layer, nn.Linear), self.modules())
+            # lambda layer: isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear), self.modules())
+
+        # remove the mask for the first and last layer
+        keep_masks[0] = torch.ones_like(keep_masks[0])
+        keep_masks[-1] = torch.ones_like(keep_masks[-1])
         for layer, keep_mask in zip(prunable_layers, keep_masks):
             assert (layer.weight.shape == keep_mask.shape)
+
+            print(f"Layer:{str(layer)} => Density: {torch.sum(keep_mask)/torch.numel(keep_mask)}")
 
             # mask[i] == 0 --> Prune parameter
             # mask[i] == 1 --> Keep parameter

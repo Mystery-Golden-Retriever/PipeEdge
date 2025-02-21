@@ -6,16 +6,11 @@ It includes an automatic partition scheduler which maps model layers to devices 
 
 ## Pruning
 
-for evaluation.py
-
-```sh
-python evaluation.py --prune 1
-
 ```
 for evaluation.py (tb : train-batch-size, keep-ratio : pruning keep ratio)
 
 ```sh
-python evaluation.py --prune 1 -tb 64 --keep-ratio 0.9
+python evaluation.py --prune 1 -tb 64 --keep-ratio 0.9 --partition 1,48
 ```
 
 for runtime.py
