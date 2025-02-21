@@ -32,10 +32,15 @@ runtime = [
     "torchvision>=0.3.0",
 ]
 
-[build-system]
+# [build-system]
 # py-build-cmake isn't particularly stable yet, so we'll use a specific version
-requires = ["py-build-cmake==0.1.8"]
-build-backend = "py_build_cmake.build"
+# requires = ["py-build-cmake==0.1.8"]
+# build-backend = "py_build_cmake.build"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
 
 [tool.py-build-cmake.module]
 directory = "src"

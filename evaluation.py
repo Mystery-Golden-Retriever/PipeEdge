@@ -5,7 +5,8 @@ import time
 import torch
 from typing import List
 from torch.utils.data import DataLoader
-from torchvision.datasets import ImageFolder
+from torchvision.datasets import ImageFolder, ImageNet
+from torchvision import transforms
 from transformers import DeiTFeatureExtractor, ViTFeatureExtractor
 from runtime import forward_hook_quant_encode, forward_pre_hook_quant_decode
 from utils.data import ViTFeatureExtractorTransforms
@@ -66,7 +67,7 @@ def _forward_model(input_tensor, model_shards):
             temp_tensor = (forward_hook_quant_encode(shard, None, temp_tensor),)
     return temp_tensor
 
-def evaluation(args):
+def evaluation(args, dataset_cfg):
     """ Evaluation main func"""
     # localize parameters
     dataset_path = args.dataset_root
@@ -92,12 +93,26 @@ def evaluation(args):
                         'facebook/deit-small-distilled-patch16-224',
                         'facebook/deit-tiny-distilled-patch16-224']:
         feature_extractor = DeiTFeatureExtractor.from_pretrained(model_name)
+        val_transform = ViTFeatureExtractorTransforms(feature_extractor)
+        val_dataset = ImageFolder(os.path.join(dataset_path, dataset_split),
+                                transform = val_transform)
+    elif model_name.startswith('torchvision'):
+        feature_extractor = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225]),
+        # transforms.Lambda(lambda x: x.unsqueeze(0))
+        ])
+        val_dataset = ImageFolder(os.path.join(dataset_path, dataset_split),
+                                transform = feature_extractor)
     else:
         feature_extractor = ViTFeatureExtractor.from_pretrained(model_name)
-        
+        val_transform = ViTFeatureExtractorTransforms(feature_extractor)
+        val_dataset = ImageFolder(os.path.join(dataset_path, dataset_split),
+                                transform = val_transform)
 
-    val_transform = ViTFeatureExtractorTransforms(feature_extractor)
-    val_dataset = ImageFolder(os.path.join(dataset_path, dataset_split), transform = val_transform)
+
     val_loader = DataLoader(
         val_dataset,
         batch_size = batch_size,
@@ -185,7 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--device", type=str, default=None,
                         help="compute device type to use, with optional ordinal, "
                              "e.g.: 'cpu', 'cuda', 'cuda:1'")
-    parser.add_argument("-n", "--num-workers", default=16, type=int,
+    parser.add_argument("-n", "--num-workers", default=4, type=int,
                         help="the number of worker threads for the dataloder")
     # Model options
     parser.add_argument("-m", "--model-name", type=str, default="google/vit-base-patch16-224",
@@ -217,4 +232,19 @@ if __name__ == "__main__":
                       help="Snip_pruning keep ratio")
     args = parser.parse_args()
 
-    evaluation(args)
+
+    if args.dataset_indices_file is None:
+        indices = None
+    elif args.dataset_indices_file.endswith('.pt'):
+        indices = torch.load(args.dataset_indices_file)
+    else:
+        indices = np.load(args.dataset_indices_file)
+    dataset_cfg = {
+        'name': args.dataset_name,
+        'root': args.dataset_root,
+        'split': args.dataset_split,
+        'indices': indices,
+        'shuffle': args.dataset_shuffle,
+    }
+
+    evaluation(args, dataset_cfg)

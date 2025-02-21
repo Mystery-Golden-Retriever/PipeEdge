@@ -18,6 +18,8 @@ import torch.nn.functional as F
 import types
 import copy
 
+import pdb
+
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ class ViTLayerShard(ModuleShard):
     
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute layer shard."""
+        # pdb.set_trace()
         if self.has_layer(0):
             data_norm = self.layernorm_before(data)
             data = (self.self_attention(data_norm)[0], data)
@@ -194,6 +197,7 @@ class ViTModelShard(ModuleShard):
                 layer.output.dense.bias.copy_(torch.from_numpy(weights[root + "MlpBlock_3/Dense_1/bias"]).t())
 
     def forward(self, data: TransformerShardData) -> TransformerShardData:
+        # pdb.set_trace()
         """Compute shard layers."""
         if self.shard_config.is_first:
             data = self.embeddings(data)
@@ -257,6 +261,7 @@ class ViTShardForImageClassification(ModuleShard):
 
     def forward(self, data: TransformerShardData) -> TransformerShardData:
         """Compute shard layers."""
+        # pdb.set_trace()
         data = self.vit(data)
         if self.shard_config.is_last:
             data = self.classifier(data[:, 0, :])
